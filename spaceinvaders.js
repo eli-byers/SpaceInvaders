@@ -16,19 +16,24 @@ function Game(){
     this.canvas = document.getElementById('game');
     this.context = this.canvas.getContext('2d');
 
-    this.enemysRemoveQueue = [];
+    this.enemyRemoveQueue = [];
     this.playerLasers = [];
     this.enemyLasers = [];
     this.components = [];
     this.enemys = [];
     this.keys = [];
 
+    this.stageEnd = 1200;
+    this.stageProgress = 0;
+    this.difficultyScale = 1.2;
     this.pace = 20;
+
     this.pixl = 2;
     this.time = 0;
     this.direction = "right";
+    this.gameover = false;
 
-    this.render = ()=>{
+    this.renderMap = ()=>{
         this.canvas.width = 500;
         this.canvas.height = 500;
         document.body.insertBefore(this.canvas, document.body.childNodes[0]);
@@ -42,27 +47,10 @@ function Game(){
             this.keys[e.keyCode] = false;
             if (this.player.canShoot){ this.player.shot = false; }
         });
-
-        // start gameloop
-        this.interval = setInterval(this.updateGameArea, 20);
-    };
-
-    this.boomOne = ()=>{
-        const idx = this.enemysRemoveQueue[0];
-        this.enemys[idx].map = objectMaps['boom'].map
-        this.enemys[idx].altMap = objectMaps['boom'].map
-        setTimeout(this.boomTwo, 100);
-    };
-    
-    this.boomTwo = ()=>{
-        const idx = this.enemysRemoveQueue[0];
-        this.enemys[idx].map = objectMaps['boom'].altMap
-        this.enemys[idx].altMap = objectMaps['boom'].altMap
-        setTimeout(this.removeEnemy, 100);
     };
 
     this.removeEnemy = ()=>{
-        this.enemys.splice(this.enemysRemoveQueue.shift(),1);
+        this.enemys.splice(this.enemyRemoveQueue.shift(),1);
     };
 
     this.renderMapFor = (obj)=>{
@@ -86,77 +74,97 @@ function Game(){
 
         // player icon
         var y = this.canvas.height - 13;
-        game.renderMapFor({ map: this.player.map, color: 'lime',  x: 40,  y: this.canvas.height - 20})
-        // limes count
+        game.renderMapFor({ map: this.player.map, color: 'lime',  x: 40,  y: this.canvas.height - 24})
+        
+        // lives count
         ctx.fillStyle = 'white';
-        ctx.font = "15px Arial";
+        ctx.font = "normal 15px Arial";
         ctx.textAlign = 'left'
         ctx.fillText(this.player.lives + " x", 10, y+7);
+        
         // score
         ctx.textAlign = 'right'
         ctx.fillText("SCORE: " + this.player.points, this.canvas.width-10, this.canvas.height-6);
     };
 
     this.updateGameArea = ()=>{
+        this.time += 1;
+        this.stageProgress += 1;
         this.clear();
-
-        // speed up
-        this.time++;
-        switch (this.time) {
-            case 1200: this.pace = 15; break;
-            case 2400: this.pace = 10; break;
-        }
-        // spawn
-        if (this.enemys.length == 0){
-            this.initLevel();
-        }
+        
         // enemys
         let nextDir = this.direction;
+        let shooteridx = Math.floor(Math.random() * this.enemys.length);
         for (var i = 0; i < this.enemys.length; i++){
             // hit edge
-            newDir = this.enemys[i].update();
+            let newDir = this.enemys[i].update();
             if (newDir != this.direction) {
                 nextDir = newDir;
             }
             // hit player
             if (colliding(this.enemys[i], this.player)){
-                this.enemys[i].canCollide = false;
-                this.enemys[i].speed = 0;
-                this.enemysRemoveQueue.push(i);
+                this.enemys[i].boomOne();
                 this.player.lives -= 1;
-                setTimeout(this.boomOne, 0);
+            }
+            // shoot
+            if (game.enemyLasers.length == 0 && shooteridx == i){
+                this.enemys[i].shoot();
             }
         };
-        // drop a row
-        if (nextDir != this.direction){
-            this.enemys.map(e => e.y += 20)
-            this.direction = nextDir;
+        this.direction = nextDir;
+
+        // game play
+        if (!game.gameover){
+            // spawn
+            if (this.enemys.length == 0){
+                this.initEnemies();
+                this.player.lives += 1;
+            }
+            
+            // tag
+            // speed up
+            if (this.stageProgress == this.stageEnd) {
+                this.stageProgress = 0;
+                this.stageEnd = Math.round(this.stageEnd *= this.difficultyScale)
+
+                let step = Math.ceil( this.pace * 0.1 )
+                this.pace -= step;
+                this.pace = this.pace ? this.pace : 1;
+            }
         }
+
         // keys: left - right - space
         if(this.keys){
-            if(this.keys[37]){ this.player.move("left"); }
-            if(this.keys[39]){ this.player.move("right"); }
-            if(this.keys[32]){ this.player.shoot(); }
+            if(game.gameover){
+                if(this.keys[13]) {
+                    game.reset();
+                }
+            } 
+            else {
+                this.player.move(this.keys)
+            }
         }
-        // player(s) / m-ship
-        for (var i = 0; i < this.components.length ; i++){
+
+        // player(s) / baracades / m-ship
+        for (var i = 0; i < this.components.length; i++){
             this.components[i].update();
         }
+
         // player lasers
-        for (var i = 0; i < this.playerLasers.length ; i++){
+        for (var i = 0; i < this.playerLasers.length; i++){
             var laserState = this.playerLasers[i].update();
             if (laserState != undefined){
                 // collided with enemy
                 if (laserState >= 0){
-                    this.enemysRemoveQueue.push(laserState);
-                    this.player.points += this.enemys[laserState].points;
-                    setTimeout(this.boomOne, 100);
+                    let idx = laserState;
+                    this.player.points += this.enemys[idx].points;
+                    this.enemys[idx].boomOne();
                 }
                 // collided or out of bounds
                 if (laserState >= -2){ 
                     let laser = this.playerLasers[i];
+                    this.playerLasers.push(new Splat(laser.color, laser.x, laser.y));
                     this.playerLasers.splice(i, 1); 
-                    this.playerLasers.push(new Splat(laser.color, laser.x-8, laser.y));
                 }
                 // collided with mother ship
                 if (laserState == -2){
@@ -170,53 +178,114 @@ function Game(){
                 }
             }
         }
+
         // enemy lasers
-        for (var i = 0; i < this.enemyLasers.length ; i++){
-            var laserState = this.enemyLasers[i].update();
-            // collided with enemy
-            if (laserState == 1){
-                game.player.lives--;
+        for (var i = 0; i < this.enemyLasers.length; i++){
+            let laser = this.enemyLasers[i];
+            var laserState = laser.update();
+            // collided with player
+            if (laserState == -1){
+                this.player.lives -= 1;
+                this.enemyLasers.push(new Splat(laser.color, laser.x, laser.y));
             }
-            // collided or out of bounds
-            if (laserState >= -1){ this.enemyLasers.splice(i, 1); }
+            // -1: collided, now splat
+            // -2: out of bounds 
+            // -3: splat done
+            if (laserState <= -1){ 
+                this.enemyLasers.splice(i, 1); 
+            }
+        }
+
+        // game over
+        if (!game.gameover && this.player.lives <= 0){
+            this.player.lives = 0;
+            this.gameover = true;
+            this.player.boomOne();
+        } 
+        if (game.gameover){
+            this.player.lives = 0;
+            var ctx = this.context;
+            ctx.fillStyle = 'red';
+            ctx.textAlign = 'center'
+            ctx.font = "bold 30px Arial";
+            ctx.fillText("YOU DIED", this.canvas.width / 2, this.canvas.height / 2);
+            ctx.font = "normal 20px Arial";
+            ctx.fillText("Press RETURN to Play", this.canvas.width / 2, this.canvas.height / 2 + 40);
         }
     };
 
     this.start = ()=>{
+        this.renderMap();
+        this.initEnemies();
+
         this.player = new Player();
         this.components.push(this.player);
+        
         this.motherShip = new MotherShip();
         this.components.push(this.motherShip);
-        this.time = 0;
 
-        // test: remove line
-        this.pace = 5;
-        
-        this.render();
-        this.initLevel();
+        for (var i = 1; i < 5; i++){
+            this.components.push(new Baracade('lime', Math.round(i/5 * this.canvas.width), 400));
+        }
+
+        // start gameloop
+        this.time = 0;
+        this.interval = setInterval(this.updateGameArea, 20);
     };
 
-    this.initLevel = ()=>{
+    this.reset = ()=>{
+        clearInterval(this.interval);
+
+        this.enemyRemoveQueue = [];
+        this.playerLasers = [];
+        this.enemyLasers = [];
+        this.components = [];
+        this.enemys = [];
+        this.keys = [];
+
+        this.stageEnd = 1200;
+        this.stageProgress = 0;
+        this.pace = 20;
+
+        this.pixl = 2;
+        this.time = 0;
+        this.direction = "right";
+        this.gameover = false;
+
+        this.start();
+    }
+
+    this.initEnemies = ()=>{
         var x = 0;
-
-        // test: y = 60
-        var y = 360;
-
-        // test: uncomment
-        const types = ['squid', 'crab', 'crab']//, 'thulu', 'thulu'];
-
+        var y = 60;
+        const types = ['squid', 'crab', 'crab', 'thulu', 'thulu'];
         for (t = 0; t < types.length; t++){
             x = 80;
-
-            // test: i < 9
-            for (i = 0; i < 1; i++){
-                
+            for (i = 0; i < 9; i++){
                 this.enemys.push(new Enemy('white', types[t], 10, x, y));
                 x += 40;
             }
             y += 30;
         }
     };
+
+    this.deleteComponent = (c)=>{
+        for (i in this.components){
+            if (c === this.components[i]){
+                this.components.splice(i, 1);
+                break;
+            }
+        }
+    };
+
+    this.deleteEnemy = (e)=>{
+        for (i in this.enemys){
+            if (e === this.enemys[i]){
+                this.enemys.splice(i, 1);
+                break;
+            }
+        }
+    }
 }
 
 
@@ -235,7 +304,7 @@ function Player(){
     this.width = this.map[0].length * game.pixl;
     this.height = this.map.length * game.pixl;;
     this.x = game.canvas.width/2 - this.width/2;
-    this.y = 450;
+    this.y = 445;
     this.color = 'lime';
     this.lives = 3;
     this.points = 0;
@@ -247,20 +316,28 @@ function Player(){
     this.update = function(){
         game.renderMapFor(this);
     };
-    
-    this.move = function(dir){
-        switch (dir) {
-            case "left":
-                if(this.x > 0){ this.x -= this.speed; }
-                break;
-            case "right":
-                if(this.x < game.canvas.width-this.width){ this.x += this.speed; }
-                break;
-            default:
-                break;
-        }
+
+    this.move = function(keys){
+        if(keys[37]) this.moveLeft();
+        if(keys[39]) this.moveRight();
+        if(keys[32]) this.shoot();
     };
-    
+
+    this.moveLeft = function(){
+        if(this.x > 0){ 
+            this.x -= this.speed; 
+        }
+        this.x = Math.max(0, this.x);
+    };
+
+    this.moveRight = function(){
+        let point = game.canvas.width-this.width;
+        if(this.x < point){
+            this.x += this.speed;
+        }
+        this.x = Math.min(point, this.x);
+    };
+
     this.shoot = function(){
         if (this.canShoot & !this.shot){
             this.shot = true;
@@ -273,6 +350,52 @@ function Player(){
             }, 420);
         }
     };
+
+    this.boomOne = ()=>{
+        this.speed = 0;
+        this.canShoot = false;
+        this.canCollide = false;
+        
+        this.color = 'orange';
+        this.map = objectMaps.shroom.map1;
+        setTimeout(this.boomTwo, 100);
+    };
+    
+    this.boomTwo = ()=>{
+        this.map = objectMaps.shroom.map2;
+        setTimeout(this.boomThree, 100);
+    };
+    
+    this.boomThree = ()=>{
+        this.map = objectMaps.shroom.map3;
+        setTimeout(this.delete, 100);
+    };
+
+    this.delete = ()=>{
+        game.deleteComponent(this);
+    };
+}
+
+function Baracade(color, x, y){
+    this.map = [];
+    for (var i = 0; i < objectMaps['baracade'].map.length; i++){
+        this.map[i] = objectMaps['baracade'].map[i].slice();
+    }
+
+    this.height = this.map.length * game.pixl;
+    this.width = this.map[0].length * game.pixl;
+    this.color = color;
+    this.x = x - this.width / 2;
+    this.y = y;
+    this.canCollide = true;
+
+    this.update = function(){
+        game.renderMapFor(this);
+    };
+
+    this.damage = function(x, y){
+        
+    }
 }
 
 /*oooooooooooo                                                     
@@ -303,29 +426,37 @@ function Enemy(color, type, speed, x, y){
 
     this.update = function(){
         var dir = game.direction;
-        if (game.time % game.pace === 0) {
+        if (game.stageProgress % game.pace === 0) {
             
             [this.map, this.altMap] = [this.altMap, this.map]
             switch (game.direction) {
                 case 'left':
                     this.x -= this.speed;
                     if (this.x <= this.speed) {
-                        dir = 'right';
+                        dir = 'down-right';
                     }
                     break;
                 case 'right':
                     this.x += this.speed;
                     if (this.x+this.width > game.canvas.width-this.speed){ 
-                        dir = 'left';
+                        dir = 'down-left';
                     }
                     break;
+                case 'down-right':
+                    this.y += 30;
+                    dir = 'right'
+                    break;
+                case 'down-left':
+                    this.y += 30;
+                    dir = 'left'
+                    break;
+                    
                 default: break;
             }
         }
 
-        var chance = Math.floor(Math.random() * 3000) + 1;
-        if (chance == 1){
-            this.shoot();
+        if (this.y > game.canvas.height - this.height - 30){
+            this.boomOne();
         }
 
         game.renderMapFor(this);
@@ -333,8 +464,27 @@ function Enemy(color, type, speed, x, y){
     };
 
     this.shoot = function(){
-        game.enemyLasers.push(new Laser('white', 7,'down',this.x+(this.width/2)-1, this.y+this.height));
+        game.enemyLasers.push(
+            new Laser('white', 7,'down',this.x+(this.width/2)-1, this.y+this.height)
+        );
     }
+
+    this.boomOne = ()=>{
+        this.canCollide = false;
+        this.map = objectMaps['boom'].map;
+        this.altMap = this.map;
+        setTimeout(this.boomTwo, 100);
+    };
+    
+    this.boomTwo = ()=>{
+        this.map = objectMaps['boom'].altMap;
+        this.altMap = this.map;
+        setTimeout(this.delete, 100);
+    };
+
+    this.delete = ()=>{
+        game.deleteEnemy(this);
+    };
 }
 
 function MotherShip(){
@@ -346,21 +496,6 @@ function MotherShip(){
     this.speed = 0;
     this.color = 'red';
     this.canCollide = true;
-
-    this.boomOne = ()=>{
-        this.map = objectMaps['boom'].map;
-        setTimeout(this.boomTwo, 100);
-    };
-    
-    this.boomTwo = ()=>{
-        this.map = objectMaps['boom'].altMap;
-        setTimeout(this.reset, 100);
-    };
-
-    this.removeEnemy = function(){
-        console.log('deleted');
-        game.enemys.splice(game.enemysRemoveQueue.shift(),1);
-    };
 
     this.update = function(){
         if (this.speed == 0){
@@ -376,11 +511,21 @@ function MotherShip(){
         game.renderMapFor(this);
     };
 
+    this.boomOne = ()=>{
+        this.map = objectMaps['boom'].map;
+        setTimeout(this.boomTwo, 100);
+    };
+    
+    this.boomTwo = ()=>{
+        this.map = objectMaps['boom'].altMap;
+        setTimeout(this.reset, 100);
+    };
+
     this.reset = ()=>{
         this.map = objectMaps['motherShip'].map;
         this.speed = 0;
         this.x = -this.width;
-    }
+    };
 }
 
 /*ooooo                                              
@@ -406,19 +551,33 @@ function Laser(color, speed, dir, x, y){
 
     this.update = function(){
         this.y += this.direction == 'down' ? this.speed : -this.speed;
-        let bottommargin = 30
+        let bottommargin = 25;
+
         // ob
-        if (this.y > game.canvas.height - bottommargin - this.height || this.y < 0-this.height){ return -1; }
-        // collision
+        if (this.y > game.canvas.height - bottommargin - this.height || this.y < 0-this.height){ return -3; }
+        
+        // collision up
         if (this.direction == 'up') {
-            for (i in game.enemys){
-                if (colliding(this, game.enemys[i])){ return i; }
+            // enemys
+            for (var i = 0; i < game.enemys.length; i++){
+                if (colliding(this, game.enemys[i])){ 
+                    return i;
+                }
             }
+            // mothership
             if (game.motherShip.speed !== 0){
-                if (colliding(this, game.motherShip)){ return -2; }
+                if (colliding(this, game.motherShip)){
+                    return -2;
+                }
             }
-        } else {
-            if (colliding(this, game.player)){ return 1; }
+        } 
+        
+        // collision down
+        else {
+            // player
+            if (colliding(this, game.player)){ 
+                return -1;
+            }
         }
 
         var ctx = game.context;
@@ -428,19 +587,20 @@ function Laser(color, speed, dir, x, y){
 }
 
 function Splat(color, x, y){
-    this.frames = [objectMaps.splat.map3, objectMaps.splat.map2, objectMaps.splat.map1]
-    
-    this.life = 2;
-    this.x = x;
+    this.frames = [objectMaps.splat.map1, objectMaps.splat.map2, objectMaps.splat.map3]
+    this.map = null;
+    this.frame = 0;
+    this.x = x - Math.round(objectMaps.splat.map1[0].length / 2);
     this.y = y;
     this.color = color;
     
     this.update = function(){
-        if (this.life < 0) return -3;
-        this.map = this.frames[this.life];
-        
+        if (this.frame == this.frames.length) return -3;
+
+        this.map = this.frames[this.frame];
+        this.frame += 1;
+
         game.renderMapFor(this);
-        this.life--;
     }
 
 }
