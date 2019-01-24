@@ -106,14 +106,27 @@ function Game(){
             case 1200: this.pace = 15; break;
             case 2400: this.pace = 10; break;
         }
+        // spawn
+        if (this.enemys.length == 0){
+            this.initLevel();
+        }
         // enemys
         let nextDir = this.direction;
-        this.enemys.forEach(e => {
-            newDir = e.update();
+        for (var i = 0; i < this.enemys.length; i++){
+            // hit edge
+            newDir = this.enemys[i].update();
             if (newDir != this.direction) {
                 nextDir = newDir;
             }
-        });
+            // hit player
+            if (colliding(this.enemys[i], this.player)){
+                this.enemys[i].canCollide = false;
+                this.enemys[i].speed = 0;
+                this.enemysRemoveQueue.push(i);
+                this.player.lives -= 1;
+                setTimeout(this.boomOne, 0);
+            }
+        };
         // drop a row
         if (nextDir != this.direction){
             this.enemys.map(e => e.y += 20)
@@ -147,9 +160,9 @@ function Game(){
                 }
                 // collided with mother ship
                 if (laserState == -2){
-                    motherShip.boomOne();
+                    this.motherShip.boomOne();
                     var rand = Math.floor(Math.random() * 10) + 1;
-                    player.points += 200 + rand * 50;
+                    this.player.points += 200 + rand * 50;
                 }
                 // splat done
                 if (laserState == -3){
@@ -175,20 +188,35 @@ function Game(){
         this.motherShip = new MotherShip();
         this.components.push(this.motherShip);
         this.time = 0;
+
+        // test: remove line
+        this.pace = 5;
+        
         this.render();
-        // init level
+        this.initLevel();
+    };
+
+    this.initLevel = ()=>{
         var x = 0;
-        var y = 60;
-        const types = ['squid', 'crab', 'crab', 'thulu', 'thulu'];
+
+        // test: y = 60
+        var y = 360;
+
+        // test: uncomment
+        const types = ['squid', 'crab', 'crab']//, 'thulu', 'thulu'];
+
         for (t = 0; t < types.length; t++){
             x = 80;
-            for (i = 0; i < 9; i++){
+
+            // test: i < 9
+            for (i = 0; i < 1; i++){
+                
                 this.enemys.push(new Enemy('white', types[t], 10, x, y));
                 x += 40;
             }
             y += 30;
         }
-    }
+    };
 }
 
 
@@ -214,6 +242,7 @@ function Player(){
     this.speed = 2;
     this.shot = false;
     this.canShoot = true;
+    this.canCollide = true;
 
     this.update = function(){
         game.renderMapFor(this);
@@ -270,6 +299,7 @@ function Enemy(color, type, speed, x, y){
     this.y = y;
     this.left = x-98;
     this.right = x+46;
+    this.canCollide = true;
 
     this.update = function(){
         var dir = game.direction;
@@ -315,6 +345,7 @@ function MotherShip(){
     this.y = 15;
     this.speed = 0;
     this.color = 'red';
+    this.canCollide = true;
 
     this.boomOne = ()=>{
         this.map = objectMaps['boom'].map;
@@ -327,6 +358,7 @@ function MotherShip(){
     };
 
     this.removeEnemy = function(){
+        console.log('deleted');
         game.enemys.splice(game.enemysRemoveQueue.shift(),1);
     };
 
@@ -370,12 +402,13 @@ function Laser(color, speed, dir, x, y){
     this.x = x;
     this.y = y;
     this.direction = dir;
+    this.canCollide = true;
 
     this.update = function(){
         this.y += this.direction == 'down' ? this.speed : -this.speed;
-        
+        let bottommargin = 30
         // ob
-        if (this.y > game.canvas.height || this.y < 0-this.height){ return -1; }
+        if (this.y > game.canvas.height - bottommargin - this.height || this.y < 0-this.height){ return -1; }
         // collision
         if (this.direction == 'up') {
             for (i in game.enemys){
@@ -395,7 +428,7 @@ function Laser(color, speed, dir, x, y){
 }
 
 function Splat(color, x, y){
-    this.frames = [objectMaps.splat.map1, objectMaps.splat.map2, objectMaps.splat.map3]
+    this.frames = [objectMaps.splat.map3, objectMaps.splat.map2, objectMaps.splat.map1]
     
     this.life = 2;
     this.x = x;
@@ -425,10 +458,11 @@ o888o   o888o `Y8bod8P' o888o  888bod8P' `Y8bod8P' d888b    8""888P'
                                                                      */
 
 function colliding(rect1, rect2){
-    if (rect1.x < rect2.x + rect2.width && rect1.x + rect1.width > rect2.x &&
-        rect1.y < rect2.y + rect2.height && rect1.height + rect1.y > rect2.y)
-    { return true }
-    return false;
+    cancollide = rect1.canCollide && rect2.canCollide;
+    x = rect1.x < rect2.x + rect2.width && rect1.x + rect1.width > rect2.x;
+    y = rect1.y < rect2.y + rect2.height && rect1.y + rect1.height > rect2.y;
+
+    return  cancollide && x && y;
 }
 
 
