@@ -16,7 +16,6 @@ function Game(){
     this.canvas = document.getElementById('game');
     this.context = this.canvas.getContext('2d');
 
-    this.enemyRemoveQueue = [];
     this.playerLasers = [];
     this.enemyLasers = [];
     this.components = [];
@@ -47,10 +46,6 @@ function Game(){
             this.keys[e.keyCode] = false;
             if (this.player.canShoot){ this.player.shot = false; }
         });
-    };
-
-    this.removeEnemy = ()=>{
-        this.enemys.splice(this.enemyRemoveQueue.shift(),1);
     };
 
     this.renderMapFor = (obj)=>{
@@ -96,32 +91,41 @@ function Game(){
         let nextDir = this.direction;
         let shooteridx = Math.floor(Math.random() * this.enemys.length);
         for (var i = 0; i < this.enemys.length; i++){
+            let enemy = this.enemys[i];
             // hit edge
-            let newDir = this.enemys[i].update();
+            let newDir = enemy.update();
             if (newDir != this.direction) {
                 nextDir = newDir;
             }
             // hit player
-            if (colliding(this.enemys[i], this.player)){
-                this.enemys[i].boomOne();
+            if (colliding(enemy, this.player)){
+                enemy.boomOne();
                 this.player.lives -= 1;
             }
+            // baracade
+            for (var j = 0; j < this.components.length; j++){
+                let comp = this.components[j];
+                if (comp instanceof Baracade && colliding(comp, enemy)){
+                    if (comp.subcolliding(enemy.x, enemy.y)){
+                        enemy.boomOne();
+                    }
+                }
+            }
             // shoot
-            if (game.enemyLasers.length == 0 && shooteridx == i){
-                this.enemys[i].shoot();
+            if (this.enemyLasers.length == 0 && shooteridx == i){
+                enemy.shoot();
             }
         };
         this.direction = nextDir;
 
         // game play
-        if (!game.gameover){
+        if (!this.gameover){
             // spawn
             if (this.enemys.length == 0){
                 this.initEnemies();
                 this.player.lives += 1;
             }
             
-            // tag
             // speed up
             if (this.stageProgress == this.stageEnd) {
                 this.stageProgress = 0;
@@ -135,9 +139,9 @@ function Game(){
 
         // keys: left - right - space
         if(this.keys){
-            if(game.gameover){
+            if(this.gameover){
                 if(this.keys[13]) {
-                    game.reset();
+                    this.reset();
                 }
             } 
             else {
@@ -152,7 +156,9 @@ function Game(){
 
         // player lasers
         for (var i = 0; i < this.playerLasers.length; i++){
-            var laserState = this.playerLasers[i].update();
+            let laser = this.playerLasers[i];
+
+            var laserState = laser.update();
             if (laserState != undefined){
                 // collided with enemy
                 if (laserState >= 0){
@@ -160,49 +166,54 @@ function Game(){
                     this.player.points += this.enemys[idx].points;
                     this.enemys[idx].boomOne();
                 }
-                // collided or out of bounds
-                if (laserState >= -2){ 
-                    let laser = this.playerLasers[i];
-                    this.playerLasers.push(new Splat(laser.color, laser.x, laser.y));
-                    this.playerLasers.splice(i, 1); 
-                }
                 // collided with mother ship
                 if (laserState == -2){
                     this.motherShip.boomOne();
                     var rand = Math.floor(Math.random() * 10) + 1;
                     this.player.points += 200 + rand * 50;
                 }
-                // splat done
-                if (laserState == -3){
-                    this.playerLasers.splice(i, 1); 
-                }
+                // collided
+                if (laserState >= -3){ 
+                    this.playerLasers.push(new Splat(laser.color, laser.x, laser.y));
+                }                
+                // ob or splat
+                // if state, remove laser
+                // -1 player
+                // -2 mship
+                // -3 baracade
+                // -4 delete
+                this.playerLasers.splice(i, 1); 
             }
         }
 
         // enemy lasers
         for (var i = 0; i < this.enemyLasers.length; i++){
             let laser = this.enemyLasers[i];
+
             var laserState = laser.update();
-            // collided with player
-            if (laserState == -1){
-                this.player.lives -= 1;
-                this.enemyLasers.push(new Splat(laser.color, laser.x, laser.y));
-            }
-            // -1: collided, now splat
-            // -2: out of bounds 
-            // -3: splat done
-            if (laserState <= -1){ 
+            if (laserState != undefined){
+                // collided with player
+                if (laserState == -1){
+                    this.player.lives -= 1;
+                }
+                if (laserState >= -3){
+                    this.enemyLasers.push(new Splat(laser.color, laser.x, laser.y));
+                }
+                // -1 player
+                // -2 mship
+                // -3 baracade
+                // -4 delete
                 this.enemyLasers.splice(i, 1); 
             }
         }
 
         // game over
-        if (!game.gameover && this.player.lives <= 0){
+        if (!this.gameover && this.player.lives <= 0){
             this.player.lives = 0;
             this.gameover = true;
             this.player.boomOne();
         } 
-        if (game.gameover){
+        if (this.gameover){
             this.player.lives = 0;
             var ctx = this.context;
             ctx.fillStyle = 'red';
@@ -223,7 +234,6 @@ function Game(){
         
         this.motherShip = new MotherShip();
         this.components.push(this.motherShip);
-
         for (var i = 1; i < 5; i++){
             this.components.push(new Baracade('lime', Math.round(i/5 * this.canvas.width), 400));
         }
@@ -378,8 +388,8 @@ function Player(){
 
 function Baracade(color, x, y){
     this.map = [];
-    for (var i = 0; i < objectMaps['baracade'].map.length; i++){
-        this.map[i] = objectMaps['baracade'].map[i].slice();
+    for (var i = 0; i < objectMaps.baracade.map.length; i++){
+        this.map[i] = objectMaps.baracade.map[i].slice();
     }
 
     this.height = this.map.length * game.pixl;
@@ -393,9 +403,49 @@ function Baracade(color, x, y){
         game.renderMapFor(this);
     };
 
-    this.damage = function(x, y){
+    this.subcolliding = function(xpxl, ypxl){
+        let xidx = Math.round((xpxl - this.x) / 2);
+        xidx = Math.max(0, xidx);
+        let yidx = Math.round((ypxl - this.y) / 2);
+        yidx = Math.max(0, yidx);
         
-    }
+
+        if (this.map[yidx][xidx] == 1){
+            this.explode(yidx, xidx);
+            return -3;
+        }
+        return undefined;
+    };
+
+    this.explode = function(yidx, xidx){
+        let mask = objectMaps.damage.map1;
+        
+        let yoff = Math.floor(mask.length / 2);
+        let xoff = Math.floor(mask[0].length / 2);
+
+        for (var y = 0; y < mask.length; y++){
+            for (var x = 0; x < mask[0].length; x++){
+
+                let mapy = yidx - yoff + y;
+                let mapx = xidx - xoff + x;
+
+                if (mapy >= 0 && mapy < this.map.length && mapx >= 0 && mapx < this.map[0].length){
+                    let damage = mask[y][x];
+                    let hit = this.map[mapy][mapx];
+                    let rand = 1 == Math.floor(Math.random() * damage) + 1
+                    
+                    if (hit && damage && rand){
+                        this.map[mapy][mapx] = 0;
+                    }
+                }
+            }
+        }
+
+        for (row in this.map){
+            console.log(this.map[row]);
+        }
+        
+    };
 }
 
 /*oooooooooooo                                                     
@@ -550,11 +600,17 @@ function Laser(color, speed, dir, x, y){
     this.canCollide = true;
 
     this.update = function(){
+
+        // -1 player
+        // -2 mship
+        // -3 baracade
+        // -4 delete
+
         this.y += this.direction == 'down' ? this.speed : -this.speed;
         let bottommargin = 25;
 
         // ob
-        if (this.y > game.canvas.height - bottommargin - this.height || this.y < 0-this.height){ return -3; }
+        if (this.y > game.canvas.height - bottommargin - this.height || this.y < 0-this.height){ return -4; }
         
         // collision up
         if (this.direction == 'up') {
@@ -580,6 +636,13 @@ function Laser(color, speed, dir, x, y){
             }
         }
 
+        // baracade
+        for (var i = 0; i < game.components.length; i++){
+            if (game.components[i] instanceof Baracade && colliding(this, game.components[i])){                
+                return game.components[i].subcolliding(this.x, this.y);
+            }
+        }
+
         var ctx = game.context;
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x, this.y, this.width, this.height);
@@ -595,7 +658,7 @@ function Splat(color, x, y){
     this.color = color;
     
     this.update = function(){
-        if (this.frame == this.frames.length) return -3;
+        if (this.frame == this.frames.length) return -4;
 
         this.map = this.frames[this.frame];
         this.frame += 1;
