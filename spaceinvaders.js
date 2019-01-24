@@ -216,12 +216,22 @@ function Game(){
         if (this.gameover){
             this.player.lives = 0;
             var ctx = this.context;
+            let cx = this.canvas.width / 2;
+            let cy = this.canvas.height / 2;
+            let width = 250;
+            let height = 100;
+
+            ctx.fillStyle = 'rgba(0,0,0,0.8)';
+            ctx.fillRect(cx - width / 2, cy - height / 2, width, height);
+            ctx.stroke();
+
             ctx.fillStyle = 'red';
             ctx.textAlign = 'center'
             ctx.font = "bold 30px Arial";
-            ctx.fillText("YOU DIED", this.canvas.width / 2, this.canvas.height / 2);
+            ctx.fillText("YOU DIED", cx, cy - 10);
+
             ctx.font = "normal 20px Arial";
-            ctx.fillText("Press RETURN to Play", this.canvas.width / 2, this.canvas.height / 2 + 40);
+            ctx.fillText("Press RETURN to Play", cx, cy + 20);
         }
     };
 
@@ -316,7 +326,7 @@ function Player(){
     this.x = game.canvas.width/2 - this.width/2;
     this.y = 445;
     this.color = 'lime';
-    this.lives = 3;
+    this.lives = 1;
     this.points = 0;
     this.speed = 2;
     this.shot = false;
